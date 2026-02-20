@@ -1,0 +1,1059 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ASOS Airport Weather Observatory</title>
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+
+  <style>
+    /* ── Reset & Base ─────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0d1117;
+      --surface:  #161b22;
+      --border:   #30363d;
+      --text:     #e6edf3;
+      --muted:    #8b949e;
+      --accent:   #58a6ff;
+      --orange:   #f0883e;
+      --green:    #3fb950;
+      --red:      #f85149;
+      --purple:   #d2a8ff;
+    }
+
+    html, body { height: 100%; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── Header ───────────────────────────────────── */
+    #header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 18px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+      z-index: 1000;
+    }
+
+    #header h1 {
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: var(--accent);
+      white-space: nowrap;
+    }
+
+    #header .subtitle {
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+
+    #status-bar {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+
+    .dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--green);
+      flex-shrink: 0;
+    }
+    .dot.loading { background: var(--orange); animation: pulse 1s infinite; }
+    .dot.error   { background: var(--red); }
+
+    @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.3 } }
+
+    /* ── Main Layout ──────────────────────────────── */
+    #main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Map ──────────────────────────────────────── */
+    #map-wrap {
+      flex: 1;
+      position: relative;
+      min-width: 0;
+    }
+
+    #map { width: 100%; height: 100%; }
+
+    #search-box {
+      position: absolute;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 800;
+      width: 280px;
+    }
+
+    #search-input {
+      width: 100%;
+      padding: 9px 14px;
+      border-radius: 8px;
+      border: none;
+      font-size: 0.88rem;
+      background: #fff;
+      color: #222;
+      box-shadow: 0 2px 10px rgba(0,0,0,.5);
+    }
+
+    #search-results {
+      background: #fff;
+      border-radius: 0 0 8px 8px;
+      overflow: hidden;
+      box-shadow: 0 4px 12px rgba(0,0,0,.4);
+      max-height: 220px;
+      overflow-y: auto;
+    }
+
+    .search-result-item {
+      padding: 8px 14px;
+      font-size: 0.82rem;
+      color: #222;
+      cursor: pointer;
+    }
+    .search-result-item:hover { background: #e8f4ff; }
+    .search-result-item strong { color: #0066cc; }
+
+    /* ── Sidebar ──────────────────────────────────── */
+    #sidebar {
+      width: 400px;
+      min-width: 340px;
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    /* ── Panels ───────────────────────────────────── */
+    .panel {
+      border-bottom: 1px solid var(--border);
+      padding: 14px 16px;
+    }
+
+    .panel-title {
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+
+    /* ── Airport Info ─────────────────────────────── */
+    #info-placeholder {
+      padding: 32px 16px;
+      text-align: center;
+      color: var(--muted);
+    }
+
+    #info-placeholder .big-icon { font-size: 2.4rem; margin-bottom: 10px; }
+    #info-placeholder p { font-size: 0.85rem; line-height: 1.5; }
+
+    #airport-header {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .airport-icao {
+      font-size: 1.8rem;
+      font-weight: 700;
+      color: var(--accent);
+      font-family: 'Courier New', monospace;
+      line-height: 1;
+    }
+
+    .airport-name {
+      font-size: 0.92rem;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.3;
+    }
+
+    .airport-meta {
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-top: 3px;
+    }
+
+    /* ── Weather Grid ─────────────────────────────── */
+    .wx-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px;
+      margin-top: 8px;
+    }
+
+    .wx-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 9px 11px;
+    }
+
+    .wx-card .wx-label {
+      font-size: 0.65rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+
+    .wx-card .wx-value {
+      font-size: 1.18rem;
+      font-weight: 700;
+      color: var(--text);
+      margin-top: 2px;
+    }
+
+    .wx-card .wx-unit { font-size: 0.65rem; color: var(--muted); }
+    .wx-card .wx-sub  { font-size: 0.68rem; color: var(--muted); margin-top: 1px; }
+
+    .wx-condition {
+      margin-top: 9px;
+      padding: 8px 10px;
+      background: var(--bg);
+      border-radius: 6px;
+      font-size: 0.82rem;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .obs-time {
+      font-size: 0.68rem;
+      color: var(--muted);
+      margin-top: 8px;
+    }
+
+    /* ── Historical Controls ──────────────────────── */
+    .row { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 8px; }
+
+    select, input[type="date"] {
+      flex: 1;
+      min-width: 80px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 9px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+    }
+
+    select:focus, input[type="date"]:focus { outline: 2px solid var(--accent); border-color: transparent; }
+
+    button {
+      background: #1f6feb;
+      color: #fff;
+      border: none;
+      padding: 6px 13px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    button:hover { background: #388bfd; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+
+    button.btn-secondary {
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    button.btn-secondary:hover { background: var(--border); }
+
+    button.btn-danger { background: #6e2222; color: #ff9999; border: 1px solid #8b2929; }
+    button.btn-danger:hover { background: #8b2929; }
+
+    /* ── Comparison List ──────────────────────────── */
+    #comparison-list { margin-top: 6px; }
+
+    .comp-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 9px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 5px;
+      font-size: 0.78rem;
+    }
+
+    .comp-color {
+      width: 9px; height: 9px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .comp-info { flex: 1; min-width: 0; }
+    .comp-info .comp-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .comp-info .comp-meta { font-size: 0.68rem; color: var(--muted); }
+
+    .comp-remove {
+      background: none;
+      color: var(--muted);
+      padding: 2px 6px;
+      font-size: 0.75rem;
+      border: none;
+    }
+    .comp-remove:hover { background: none !important; color: var(--red); }
+
+    /* ── Chart ────────────────────────────────────── */
+    #chart-wrap {
+      padding: 0 14px 16px;
+      display: none;
+    }
+
+    #chart-wrap canvas { max-height: 280px; }
+
+    /* ── Loading / Error ──────────────────────────── */
+    .loading {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 0.82rem;
+      padding: 6px 0;
+    }
+
+    .spinner {
+      width: 14px; height: 14px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .error-box {
+      color: var(--red);
+      font-size: 0.78rem;
+      padding: 8px 10px;
+      background: #1a0000;
+      border: 1px solid #3d0000;
+      border-radius: 6px;
+      margin-top: 6px;
+    }
+
+    /* ── Data source badge ────────────────────────── */
+    .src-badge {
+      display: inline-block;
+      font-size: 0.62rem;
+      padding: 2px 6px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+
+    /* ── Responsive ───────────────────────────────── */
+    @media (max-width: 760px) {
+      #main { flex-direction: column; }
+      #sidebar { width: 100%; min-width: unset; height: 55vh; flex-shrink: 0; }
+      #map-wrap { height: 45vh; }
+      #header h1 { font-size: 0.9rem; }
+      .subtitle { display: none; }
+    }
+  </style>
+</head>
+
+<body>
+
+<!-- ═══ HEADER ═══════════════════════════════════════════════════════ -->
+<div id="header">
+  <span style="font-size:1.4rem;line-height:1">✈</span>
+  <div>
+    <h1>ASOS Airport Weather Observatory</h1>
+    <div class="subtitle">Surface obs · Leaflet + DuckDB-WASM · dynamical.org parquet</div>
+  </div>
+  <div id="status-bar">
+    <div class="dot loading" id="status-dot"></div>
+    <span id="status-text">Initialising…</span>
+  </div>
+</div>
+
+<!-- ═══ MAIN ══════════════════════════════════════════════════════════ -->
+<div id="main">
+
+  <!-- Map -->
+  <div id="map-wrap">
+    <div id="search-box">
+      <input id="search-input" type="text" placeholder="Search airport / ICAO…" autocomplete="off" />
+      <div id="search-results"></div>
+    </div>
+    <div id="map"></div>
+  </div>
+
+  <!-- Sidebar -->
+  <div id="sidebar">
+
+    <!-- Placeholder / Airport info -->
+    <div class="panel" id="info-panel">
+      <div id="info-placeholder">
+        <div class="big-icon">🗺</div>
+        <p>Click any airport on the map<br>to view weather data and<br>historical time series.</p>
+      </div>
+      <div id="airport-body" style="display:none">
+        <div id="airport-header"></div>
+      </div>
+    </div>
+
+    <!-- Current Observations -->
+    <div class="panel" id="current-panel" style="display:none">
+      <div class="panel-title">Current Observations</div>
+      <div id="current-content"></div>
+    </div>
+
+    <!-- Historical Time Series -->
+    <div class="panel" id="history-panel" style="display:none">
+      <div class="panel-title">
+        Historical Time Series
+        <span class="src-badge" id="data-src-badge">dynamical.org</span>
+      </div>
+
+      <div class="row">
+        <select id="var-select">
+          <option value="tmpf">Temperature (°F)</option>
+          <option value="dwpf">Dewpoint (°F)</option>
+          <option value="sknt">Wind Speed (kts)</option>
+          <option value="p01i">Precip (in/hr)</option>
+        </select>
+      </div>
+
+      <div class="row">
+        <input type="date" id="date-start" />
+        <span style="align-self:center;color:var(--muted);font-size:.8rem">→</span>
+        <input type="date" id="date-end" />
+      </div>
+
+      <div class="row">
+        <button id="btn-load">Load &amp; Plot</button>
+        <button id="btn-add" class="btn-secondary">+ Add to Compare</button>
+        <button id="btn-clear" class="btn-danger" style="display:none">Clear All</button>
+      </div>
+
+      <div id="hist-status"></div>
+      <div id="comparison-list"></div>
+    </div>
+
+    <!-- Chart -->
+    <div id="chart-wrap">
+      <canvas id="wx-chart"></canvas>
+    </div>
+
+  </div><!-- /sidebar -->
+</div><!-- /main -->
+
+<!-- ─── Scripts ───────────────────────────────────────────── -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+
+<script type="module">
+/* ══════════════════════════════════════════════════════════════════════
+   ASOS Airport Weather Observatory  —  Main application
+   Data sources:
+     • Station list    : NWS API  (api.weather.gov)
+     • Current obs     : NWS API  (api.weather.gov)
+     • Historical data : dynamical.org parquet via DuckDB-WASM
+                         fallback → Iowa State Mesonet (mesonet.agron.iastate.edu)
+══════════════════════════════════════════════════════════════════════ */
+
+import * as duckdb from 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.28.1/+esm';
+
+/* ── Palette ──────────────────────────────────────────────── */
+const COLORS = [
+  '#58a6ff','#f0883e','#3fb950','#d2a8ff',
+  '#ffa657','#79c0ff','#56d364','#ff7b72',
+  '#e3b341','#bc8cff','#7ee787','#ffa198',
+];
+
+/* ── Status helpers ───────────────────────────────────────── */
+const $status  = document.getElementById('status-text');
+const $dot     = document.getElementById('status-dot');
+
+function setStatus(msg, state='loading') {
+  $status.textContent = msg;
+  $dot.className = 'dot ' + state;
+}
+
+/* ══════════════════════════════════════════════════════════
+   1. MAP SETUP
+══════════════════════════════════════════════════════════ */
+const map = L.map('map', { zoomControl: true }).setView([39.5, -98.35], 4);
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/">CARTO</a>',
+  maxZoom: 19,
+}).addTo(map);
+
+const clusterGroup = L.markerClusterGroup({
+  maxClusterRadius: 50,
+  showCoverageOnHover: false,
+  spiderfyOnMaxZoom: true,
+  disableClusteringAtZoom: 11,
+});
+map.addLayer(clusterGroup);
+
+const iconDefault = L.divIcon({
+  html: '<div style="background:#58a6ff;width:7px;height:7px;border-radius:50%;border:1.5px solid #0d1117;opacity:.85"></div>',
+  iconSize: [10,10], iconAnchor: [5,5], className: '',
+});
+const iconSelected = L.divIcon({
+  html: '<div style="background:#f0883e;width:12px;height:12px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 8px #f0883e"></div>',
+  iconSize: [16,16], iconAnchor: [8,8], className: '',
+});
+
+/* ══════════════════════════════════════════════════════════
+   2. STATE
+══════════════════════════════════════════════════════════ */
+let allStations    = [];        // NWS GeoJSON features
+let markerIndex    = {};        // stationId → L.marker
+let selectedStation = null;
+let selectedMarker  = null;
+let duckConn       = null;      // DuckDB connection
+let duckReady      = false;
+let chart          = null;
+let compDatasets   = [];        // [{station, variable, label, dateRange, data}]
+
+/* ══════════════════════════════════════════════════════════
+   3. DUCKDB INIT
+══════════════════════════════════════════════════════════ */
+async function initDuckDB() {
+  setStatus('Initialising DuckDB-WASM…');
+  try {
+    const bundles = duckdb.getJsDelivrBundles();
+    const bundle  = await duckdb.selectBundle(bundles);
+
+    const workerBlob = new Blob(
+      [`importScripts("${bundle.mainWorker}");`],
+      { type: 'text/javascript' }
+    );
+    const workerUrl = URL.createObjectURL(workerBlob);
+    const worker    = new Worker(workerUrl);
+
+    const logger = new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING);
+    const db     = new duckdb.AsyncDuckDB(logger, worker);
+    await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+    duckConn = await db.connect();
+
+    // Load httpfs extension (needed for remote parquet)
+    try { await duckConn.query(`LOAD httpfs;`); } catch (_) {}
+
+    duckReady = true;
+    document.getElementById('data-src-badge').textContent = 'dynamical.org';
+    document.getElementById('data-src-badge').style.borderColor = '#3fb950';
+    document.getElementById('data-src-badge').style.color = '#3fb950';
+    console.log('[DuckDB] ready');
+    return true;
+  } catch (err) {
+    console.warn('[DuckDB] init failed:', err);
+    document.getElementById('data-src-badge').textContent = 'IEM fallback';
+    return false;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════
+   4. LOAD STATIONS  (NWS API, paginated)
+══════════════════════════════════════════════════════════ */
+async function loadStations() {
+  setStatus('Loading stations…');
+  let url   = 'https://api.weather.gov/stations?stationType=ASOS&limit=500';
+  let pages = 0;
+
+  while (url && pages < 8) {
+    try {
+      const resp = await fetch(url, { headers: { Accept: 'application/geo+json' } });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const json = await resp.json();
+
+      if (Array.isArray(json.features) && json.features.length > 0) {
+        allStations.push(...json.features);
+        addMarkersToMap(json.features);
+        setStatus(`Loaded ${allStations.length} stations…`);
+      }
+
+      url = json.pagination?.next || null;
+      pages++;
+
+      // Small pause to avoid hammering the API
+      if (url) await new Promise(r => setTimeout(r, 120));
+    } catch (e) {
+      console.error('[Stations] page fetch failed:', e);
+      break;
+    }
+  }
+
+  setStatus(`${allStations.length} ASOS stations`, 'ok');
+}
+
+function addMarkersToMap(features) {
+  const newMarkers = [];
+  for (const f of features) {
+    const id = f.properties?.stationIdentifier;
+    if (!id || markerIndex[id]) continue;
+    const [lng, lat] = f.geometry?.coordinates ?? [];
+    if (lat == null || lng == null) continue;
+
+    const m = L.marker([lat, lng], { icon: iconDefault });
+    m.bindTooltip(`<strong>${id}</strong><br>${f.properties.name || ''}`, {
+      direction: 'top', offset: [0, -6],
+    });
+    m.on('click', () => selectStation(f, m));
+    markerIndex[id] = m;
+    newMarkers.push(m);
+  }
+  if (newMarkers.length) clusterGroup.addLayers(newMarkers);
+}
+
+/* ══════════════════════════════════════════════════════════
+   5. SELECT STATION
+══════════════════════════════════════════════════════════ */
+function selectStation(feature, marker) {
+  // Reset old marker
+  if (selectedMarker) selectedMarker.setIcon(iconDefault);
+
+  selectedStation = feature;
+  selectedMarker  = marker;
+  marker.setIcon(iconSelected);
+
+  const p   = feature.properties;
+  const id  = p.stationIdentifier;
+  const [lng, lat] = feature.geometry.coordinates;
+
+  // Show panels
+  document.getElementById('info-placeholder').style.display  = 'none';
+  document.getElementById('airport-body').style.display      = '';
+  document.getElementById('current-panel').style.display     = '';
+  document.getElementById('history-panel').style.display     = '';
+
+  // Airport header
+  document.getElementById('airport-header').innerHTML = `
+    <div>
+      <div class="airport-icao">${id}</div>
+    </div>
+    <div style="flex:1;min-width:0;padding-left:4px">
+      <div class="airport-name">${p.name || 'Unknown'}</div>
+      <div class="airport-meta">
+        ${lat.toFixed(4)}°N &nbsp;${Math.abs(lng).toFixed(4)}°${lng < 0 ? 'W' : 'E'}
+        ${p.elevation?.value != null ? ` &nbsp;·&nbsp; ${Math.round(p.elevation.value)} m elev` : ''}
+        ${p.timeZone ? ` &nbsp;·&nbsp; ${p.timeZone}` : ''}
+      </div>
+    </div>`;
+
+  fetchCurrentObs(id);
+}
+
+/* ══════════════════════════════════════════════════════════
+   6. CURRENT OBSERVATIONS  (NWS)
+══════════════════════════════════════════════════════════ */
+async function fetchCurrentObs(stationId) {
+  const el = document.getElementById('current-content');
+  el.innerHTML = '<div class="loading"><div class="spinner"></div> Fetching observations…</div>';
+
+  try {
+    const resp = await fetch(
+      `https://api.weather.gov/stations/${stationId}/observations/latest`,
+      { headers: { Accept: 'application/geo+json' } }
+    );
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const obs = (await resp.json()).properties;
+
+    const c2f = v => v != null ? (v * 9/5 + 32).toFixed(1) : null;
+    const fmt  = (v, d=1) => v != null ? parseFloat(v).toFixed(d) : '—';
+
+    const tempC = obs.temperature?.value;
+    const dewC  = obs.dewpoint?.value;
+    const wspd  = obs.windSpeed?.value;       // m/s
+    const wdir  = obs.windDirection?.value;   // deg
+    const vis   = obs.visibility?.value;      // m
+    const pres  = obs.barometricPressure?.value; // Pa
+    const rh    = obs.relativeHumidity?.value;
+
+    const tempF   = c2f(tempC);
+    const dewF    = c2f(dewC);
+    const wsKts   = wspd != null ? (wspd * 1.944).toFixed(1) : '—';
+    const visMi   = vis  != null ? (vis  / 1609.34).toFixed(1) : '—';
+    const presInHg= pres != null ? (pres / 3386.39).toFixed(2) : '—';
+
+    const cards = [
+      { label:'Temperature', value: tempF ?? '—', unit:'°F', sub: tempC != null ? `${tempC.toFixed(1)} °C` : '' },
+      { label:'Dewpoint',    value: dewF  ?? '—', unit:'°F', sub: dewC  != null ? `${dewC.toFixed(1)} °C` : '' },
+      { label:'Wind',        value: wsKts,         unit:'kt',  sub: wdir  != null ? `${degToCard(wdir)} (${wdir}°)` : '' },
+      { label:'Visibility',  value: visMi,         unit:'mi',  sub: vis != null ? `${(vis/1000).toFixed(1)} km` : '' },
+      { label:'Pressure',    value: presInHg,      unit:'inHg',sub: pres != null ? `${(pres/100).toFixed(1)} hPa` : '' },
+      { label:'Humidity',    value: rh != null ? Math.round(rh) : '—', unit:'%', sub: '' },
+    ];
+
+    const grid = cards.map(c => `
+      <div class="wx-card">
+        <div class="wx-label">${c.label}</div>
+        <div class="wx-value">${c.value}<span class="wx-unit"> ${c.unit}</span></div>
+        ${c.sub ? `<div class="wx-sub">${c.sub}</div>` : ''}
+      </div>`).join('');
+
+    const obsTime = obs.timestamp
+      ? new Date(obs.timestamp).toLocaleString(undefined, { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', timeZoneName:'short' })
+      : 'Unknown';
+
+    el.innerHTML = `
+      <div class="wx-grid">${grid}</div>
+      ${obs.textDescription ? `<div class="wx-condition">☁ ${obs.textDescription}</div>` : ''}
+      <div class="obs-time">Observed: ${obsTime}</div>`;
+
+  } catch (e) {
+    el.innerHTML = `<div class="error-box">Could not load observations: ${e.message}</div>`;
+  }
+}
+
+function degToCard(d) {
+  const dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+  return dirs[Math.round(d / 22.5) % 16];
+}
+
+/* ══════════════════════════════════════════════════════════
+   7. HISTORICAL DATA
+      Primary  : DuckDB-WASM → dynamical.org parquet
+      Fallback : Iowa State Mesonet JSON API
+══════════════════════════════════════════════════════════ */
+const PARQUET_BASE = 'https://data.source.coop/dynamical/asos-parquet';
+
+async function fetchHistorical(stationId, variable, startDate, endDate) {
+  if (duckReady) {
+    try {
+      return await fetchFromParquet(stationId, variable, startDate, endDate);
+    } catch (e) {
+      console.warn('[Parquet] query failed, falling back to IEM:', e.message);
+      document.getElementById('data-src-badge').textContent = 'IEM fallback';
+    }
+  }
+  return fetchFromIEM(stationId, variable, startDate, endDate);
+}
+
+async function fetchFromParquet(stationId, variable, startDate, endDate) {
+  const sy = parseInt(startDate.slice(0, 4));
+  const ey = parseInt(endDate.slice(0, 4));
+
+  const urls = [];
+  for (let y = sy; y <= ey; y++) urls.push(`${PARQUET_BASE}/year=${y}/data.parquet`);
+
+  const urlList = urls.map(u => `'${u}'`).join(', ');
+
+  // Escape stationId to prevent SQL injection
+  const safeId  = stationId.replace(/'/g, "''");
+  const safeVar = variable.replace(/[^a-z0-9_]/gi, '');
+
+  const sql = `
+    SELECT valid, ${safeVar} AS val
+    FROM read_parquet([${urlList}])
+    WHERE station = '${safeId}'
+      AND valid >= TIMESTAMP '${startDate} 00:00:00'
+      AND valid <= TIMESTAMP '${endDate} 23:59:59'
+      AND ${safeVar} IS NOT NULL
+    ORDER BY valid
+  `;
+
+  const result = await duckConn.query(sql);
+  const rows   = result.toArray();
+
+  return rows.map(r => {
+    // DuckDB may return timestamp as BigInt (microseconds since epoch)
+    let t = r.valid;
+    if (typeof t === 'bigint') t = Number(t / 1000n); // µs → ms
+    else if (typeof t === 'number' && t > 1e12) t = t / 1000; // µs → ms
+    return { x: new Date(t), y: parseFloat(r.val) };
+  });
+}
+
+async function fetchFromIEM(stationId, variable, startDate, endDate) {
+  // Map our variable names to IEM names (same in this case)
+  const iemVar = variable;
+  const [y1,m1,d1] = startDate.split('-');
+  const [y2,m2,d2] = endDate.split('-');
+
+  const url = [
+    'https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py',
+    `?station=${encodeURIComponent(stationId)}`,
+    `&data=${iemVar}`,
+    `&year1=${y1}&month1=${m1}&day1=${d1}`,
+    `&year2=${y2}&month2=${m2}&day2=${d2}`,
+    `&tz=Etc/UTC&format=json&missing=null&trace=null&report_type=3&latlon=no`,
+  ].join('');
+
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`IEM HTTP ${resp.status}`);
+  const json = await resp.json();
+
+  if (!Array.isArray(json.data)) throw new Error('Unexpected IEM response');
+
+  return json.data
+    .filter(r => r[iemVar] != null && r[iemVar] !== 'M' && r[iemVar] !== 'T')
+    .map(r => ({ x: new Date(r.valid + 'Z'), y: parseFloat(r[iemVar]) }))
+    .filter(r => !isNaN(r.y));
+}
+
+/* ══════════════════════════════════════════════════════════
+   8. CHART
+══════════════════════════════════════════════════════════ */
+function varLabel(v) {
+  return { tmpf:'Temperature (°F)', dwpf:'Dewpoint (°F)', sknt:'Wind Speed (kts)', p01i:'Precip (in/hr)' }[v] || v;
+}
+
+function rebuildChart() {
+  const wrap = document.getElementById('chart-wrap');
+  if (compDatasets.length === 0) { wrap.style.display = 'none'; return; }
+  wrap.style.display = 'block';
+
+  if (chart) { chart.destroy(); chart = null; }
+
+  const ctx = document.getElementById('wx-chart').getContext('2d');
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      datasets: compDatasets.map((ds, i) => ({
+        label:           ds.label,
+        data:            ds.data,
+        borderColor:     COLORS[i % COLORS.length],
+        backgroundColor: COLORS[i % COLORS.length] + '18',
+        borderWidth:     1.5,
+        pointRadius:     ds.data.length > 300 ? 0 : 2,
+        tension:         0.25,
+        fill:            false,
+        yAxisID:         'y',
+      }))
+    },
+    options: {
+      responsive: true,
+      animation: { duration: 300 },
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: {
+          type: 'time',
+          time: {
+            displayFormats: { hour:'MMM d HH:mm', day:'MMM d', month:'MMM yyyy' }
+          },
+          grid:  { color: '#30363d' },
+          ticks: { color: '#8b949e', font: { size: 10 }, maxRotation: 30 },
+        },
+        y: {
+          grid:  { color: '#30363d' },
+          ticks: { color: '#8b949e', font: { size: 10 } },
+          title: {
+            display: true,
+            text:    compDatasets.length > 0 ? varLabel(compDatasets[0].variable) : '',
+            color:   '#8b949e',
+            font:    { size: 11 },
+          },
+        },
+      },
+      plugins: {
+        legend: {
+          labels: { color: '#e6edf3', font: { size: 11 }, boxWidth: 12, padding: 12 }
+        },
+        tooltip: {
+          backgroundColor: '#161b22',
+          borderColor:     '#30363d',
+          borderWidth:     1,
+          titleColor:      '#e6edf3',
+          bodyColor:       '#8b949e',
+          padding:         10,
+        },
+      },
+    },
+  });
+}
+
+function renderCompList() {
+  const el = document.getElementById('comparison-list');
+  el.innerHTML = '';
+  document.getElementById('btn-clear').style.display = compDatasets.length ? '' : 'none';
+
+  compDatasets.forEach((ds, i) => {
+    const div = document.createElement('div');
+    div.className = 'comp-item';
+    div.innerHTML = `
+      <div class="comp-color" style="background:${COLORS[i % COLORS.length]}"></div>
+      <div class="comp-info">
+        <div class="comp-title">${ds.label}</div>
+        <div class="comp-meta">${ds.dateRange} &nbsp;·&nbsp; ${ds.data.length} obs</div>
+      </div>
+      <button class="comp-remove" title="Remove">✕</button>`;
+    div.querySelector('.comp-remove').onclick = () => {
+      compDatasets.splice(i, 1);
+      renderCompList();
+      rebuildChart();
+    };
+    el.appendChild(div);
+  });
+}
+
+/* ══════════════════════════════════════════════════════════
+   9. HISTORY BUTTON HANDLERS
+══════════════════════════════════════════════════════════ */
+async function doLoadHistory(addMode) {
+  if (!selectedStation) return;
+
+  const station  = selectedStation.properties.stationIdentifier;
+  const variable = document.getElementById('var-select').value;
+  const start    = document.getElementById('date-start').value;
+  const end      = document.getElementById('date-end').value;
+
+  if (!start || !end) { alert('Please select a date range.'); return; }
+  if (start > end)    { alert('Start date must be before end date.'); return; }
+
+  const btnLoad = document.getElementById('btn-load');
+  const btnAdd  = document.getElementById('btn-add');
+  const status  = document.getElementById('hist-status');
+
+  btnLoad.disabled = btnAdd.disabled = true;
+  btnLoad.textContent = btnAdd.textContent = 'Loading…';
+  status.innerHTML = '<div class="loading"><div class="spinner"></div> Querying data…</div>';
+
+  try {
+    const pts = await fetchHistorical(station, variable, start, end);
+
+    if (pts.length === 0) {
+      status.innerHTML = `<div class="error-box">No data found for ${station} in this range.</div>`;
+      return;
+    }
+
+    status.innerHTML = '';
+
+    const shortStart = start.slice(0, 7);
+    const shortEnd   = end.slice(0, 7);
+    const label = `${station} — ${varLabel(variable)} (${shortStart}→${shortEnd})`;
+
+    const dataset = {
+      station, variable,
+      label,
+      dateRange: `${start} → ${end}`,
+      data: pts,
+    };
+
+    if (!addMode) {
+      // Replace first dataset with same station+variable, or replace all
+      const existIdx = compDatasets.findIndex(d => d.station === station && d.variable === variable);
+      if (existIdx >= 0) compDatasets[existIdx] = dataset;
+      else               compDatasets = [dataset];
+    } else {
+      compDatasets.push(dataset);
+    }
+
+    renderCompList();
+    rebuildChart();
+
+  } catch (e) {
+    status.innerHTML = `<div class="error-box">Error: ${e.message}</div>`;
+  } finally {
+    btnLoad.disabled = btnAdd.disabled = false;
+    btnLoad.textContent = 'Load & Plot';
+    btnAdd.textContent  = '+ Add to Compare';
+  }
+}
+
+document.getElementById('btn-load').onclick = () => doLoadHistory(false);
+document.getElementById('btn-add').onclick  = () => doLoadHistory(true);
+document.getElementById('btn-clear').onclick = () => {
+  compDatasets = [];
+  renderCompList();
+  rebuildChart();
+  document.getElementById('hist-status').innerHTML = '';
+};
+
+/* ══════════════════════════════════════════════════════════
+   10. AIRPORT SEARCH
+══════════════════════════════════════════════════════════ */
+const $searchInput   = document.getElementById('search-input');
+const $searchResults = document.getElementById('search-results');
+
+$searchInput.addEventListener('input', () => {
+  const q = $searchInput.value.trim().toUpperCase();
+  $searchResults.innerHTML = '';
+  if (q.length < 2) return;
+
+  const hits = allStations.filter(f => {
+    const id   = (f.properties.stationIdentifier || '').toUpperCase();
+    const name = (f.properties.name || '').toUpperCase();
+    return id.includes(q) || name.includes(q);
+  }).slice(0, 8);
+
+  hits.forEach(f => {
+    const item = document.createElement('div');
+    item.className = 'search-result-item';
+    item.innerHTML = `<strong>${f.properties.stationIdentifier}</strong> — ${f.properties.name}`;
+    item.onclick = () => {
+      const [lng, lat] = f.geometry.coordinates;
+      map.setView([lat, lng], 11);
+      const m = markerIndex[f.properties.stationIdentifier];
+      if (m) {
+        clusterGroup.zoomToShowLayer(m, () => {
+          selectStation(f, m);
+          m.openTooltip();
+        });
+      }
+      $searchResults.innerHTML = '';
+      $searchInput.value = f.properties.stationIdentifier;
+    };
+    $searchResults.appendChild(item);
+  });
+});
+
+document.addEventListener('click', e => {
+  if (!$searchInput.contains(e.target) && !$searchResults.contains(e.target)) {
+    $searchResults.innerHTML = '';
+  }
+});
+
+/* ══════════════════════════════════════════════════════════
+   11. DATE DEFAULTS
+══════════════════════════════════════════════════════════ */
+function isoDate(d) { return d.toISOString().slice(0, 10); }
+const today  = new Date();
+const ago30  = new Date(today - 30 * 86400e3);
+document.getElementById('date-end').value   = isoDate(today);
+document.getElementById('date-start').value = isoDate(ago30);
+
+/* ══════════════════════════════════════════════════════════
+   12. BOOT
+══════════════════════════════════════════════════════════ */
+(async () => {
+  // Run DuckDB init and station loading in parallel
+  await Promise.all([
+    initDuckDB(),
+    loadStations(),
+  ]);
+  setStatus(`${allStations.length} stations · DuckDB ${duckReady ? 'ready' : 'unavailable'}`,
+            duckReady ? 'ok' : 'loading');
+})();
+
+</script>
+</body>
+</html>
