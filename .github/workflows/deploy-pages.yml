@@ -34,19 +34,31 @@ jobs:
           publish_branch: gh-pages
           exclude_assets: '.github'
 
-      - name: Enable / update Pages source
+      - name: Configure GitHub Pages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          for METHOD in POST PUT; do
-            STATUS=$(curl -s -o /tmp/pages.json -w "%{http_code}" \
-              -X "$METHOD" \
-              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/${{ github.repository }}/pages" \
-              -d '{"source":{"branch":"gh-pages","path":"/"}}')
-            echo "$METHOD -> $STATUS: $(cat /tmp/pages.json)"
-          done
+          REPO="${{ github.repository }}"
+          BODY='{"build_type":"legacy","source":{"branch":"gh-pages","path":"/"}}'
+
+          echo "==> Current Pages config:"
+          gh api "repos/$REPO/pages" 2>&1 || echo "(Pages not yet enabled)"
+
+          echo ""
+          echo "==> Attempting to create Pages site (POST):"
+          echo "$BODY" | gh api "repos/$REPO/pages" --method POST --input - 2>&1 || true
+
+          echo ""
+          echo "==> Attempting to update Pages source (PUT):"
+          echo "$BODY" | gh api "repos/$REPO/pages" --method PUT --input - 2>&1 || true
+
+          echo ""
+          echo "==> Final Pages config:"
+          gh api "repos/$REPO/pages" 2>&1
 
       - name: Summary
         run: |
+          URL="${{ steps.set-url.outputs.url }}"
           echo "### GitHub Pages deployed" >> $GITHUB_STEP_SUMMARY
-          echo "${{ steps.set-url.outputs.url }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**$URL**" >> $GITHUB_STEP_SUMMARY
