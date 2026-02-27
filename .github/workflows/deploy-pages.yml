@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: write
-  pages: write
 
 jobs:
   deploy:
@@ -26,7 +25,7 @@ jobs:
           REPO="${{ github.event.repository.name }}"
           echo "url=https://${OWNER}.github.io/${REPO}/" >> $GITHUB_OUTPUT
 
-      - name: Push to gh-pages branch
+      - name: Deploy to gh-pages branch
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -34,41 +33,6 @@ jobs:
           publish_branch: gh-pages
           exclude_assets: '.github'
 
-      - name: Configure GitHub Pages (legacy/branch mode)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          REPO="${{ github.repository }}"
-          LEGACY_BODY='{"build_type":"legacy","source":{"branch":"gh-pages","path":"/"}}'
-
-          echo "=== Current Pages state ==="
-          CURRENT=$(gh api "repos/$REPO/pages" 2>&1) && echo "$CURRENT" || echo "(not configured)"
-
-          BUILD_TYPE=$(echo "$CURRENT" | jq -r '.build_type // empty' 2>/dev/null || true)
-          echo "Detected build_type: '${BUILD_TYPE:-none}'"
-
-          if [ -z "$BUILD_TYPE" ]; then
-            echo ""
-            echo "=== Creating Pages site with legacy/branch mode ==="
-            echo "$LEGACY_BODY" | gh api "repos/$REPO/pages" --method POST --input -
-
-          elif [ "$BUILD_TYPE" = "workflow" ]; then
-            echo ""
-            echo "=== Pages is set to 'workflow' mode — switching to legacy/branch mode ==="
-            echo "$LEGACY_BODY" | gh api "repos/$REPO/pages" --method PUT --input -
-
-          else
-            echo ""
-            echo "=== Pages already in legacy mode — ensuring source is gh-pages ==="
-            echo '{"source":{"branch":"gh-pages","path":"/"}}' | \
-              gh api "repos/$REPO/pages" --method PUT --input -
-          fi
-
-          echo ""
-          echo "=== Final Pages state ==="
-          gh api "repos/$REPO/pages"
-
       - name: Summary
         run: |
-          URL="${{ steps.set-url.outputs.url }}"
-          echo "### Deployed: $URL" >> $GITHUB_STEP_SUMMARY
+          echo "### Deployed: ${{ steps.set-url.outputs.url }}" >> $GITHUB_STEP_SUMMARY
