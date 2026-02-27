@@ -34,31 +34,41 @@ jobs:
           publish_branch: gh-pages
           exclude_assets: '.github'
 
-      - name: Configure GitHub Pages
+      - name: Configure GitHub Pages (legacy/branch mode)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           REPO="${{ github.repository }}"
-          BODY='{"build_type":"legacy","source":{"branch":"gh-pages","path":"/"}}'
+          LEGACY_BODY='{"build_type":"legacy","source":{"branch":"gh-pages","path":"/"}}'
 
-          echo "==> Current Pages config:"
-          gh api "repos/$REPO/pages" 2>&1 || echo "(Pages not yet enabled)"
+          echo "=== Current Pages state ==="
+          CURRENT=$(gh api "repos/$REPO/pages" 2>&1) && echo "$CURRENT" || echo "(not configured)"
+
+          BUILD_TYPE=$(echo "$CURRENT" | jq -r '.build_type // empty' 2>/dev/null || true)
+          echo "Detected build_type: '${BUILD_TYPE:-none}'"
+
+          if [ -z "$BUILD_TYPE" ]; then
+            echo ""
+            echo "=== Creating Pages site with legacy/branch mode ==="
+            echo "$LEGACY_BODY" | gh api "repos/$REPO/pages" --method POST --input -
+
+          elif [ "$BUILD_TYPE" = "workflow" ]; then
+            echo ""
+            echo "=== Pages is set to 'workflow' mode — switching to legacy/branch mode ==="
+            echo "$LEGACY_BODY" | gh api "repos/$REPO/pages" --method PUT --input -
+
+          else
+            echo ""
+            echo "=== Pages already in legacy mode — ensuring source is gh-pages ==="
+            echo '{"source":{"branch":"gh-pages","path":"/"}}' | \
+              gh api "repos/$REPO/pages" --method PUT --input -
+          fi
 
           echo ""
-          echo "==> Attempting to create Pages site (POST):"
-          echo "$BODY" | gh api "repos/$REPO/pages" --method POST --input - 2>&1 || true
-
-          echo ""
-          echo "==> Attempting to update Pages source (PUT):"
-          echo "$BODY" | gh api "repos/$REPO/pages" --method PUT --input - 2>&1 || true
-
-          echo ""
-          echo "==> Final Pages config:"
-          gh api "repos/$REPO/pages" 2>&1
+          echo "=== Final Pages state ==="
+          gh api "repos/$REPO/pages"
 
       - name: Summary
         run: |
           URL="${{ steps.set-url.outputs.url }}"
-          echo "### GitHub Pages deployed" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**$URL**" >> $GITHUB_STEP_SUMMARY
+          echo "### Deployed: $URL" >> $GITHUB_STEP_SUMMARY
