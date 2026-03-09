@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - 'claude/github-pages-url-cfIqF'
   workflow_dispatch:
 
 permissions:
